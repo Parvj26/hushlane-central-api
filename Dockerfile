@@ -24,4 +24,5 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 EXPOSE 8001
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+# Use PORT environment variable provided by Render (defaults to 8001 for local)
+CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8001}
