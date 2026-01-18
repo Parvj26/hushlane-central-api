@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: hushlane-central-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: MASTER_ADMIN_USERNAME
+        value: admin
+      - key: MASTER_ADMIN_PASSWORD
+        generateValue: true
+      - key: LICENSE_SECRET
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    disk:
+      name: hushlane-data
+      mountPath: /opt/render/project/src
+      sizeGB: 1
