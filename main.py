@@ -17,7 +17,7 @@ templates = Jinja2Templates(directory="templates")
 security = HTTPBasic()
 
 # Configuration
-LATEST_VERSION = "1.0.0"  # Update this when releasing new versions
+LATEST_VERSION = "1.0.1"  # Update this when releasing new versions
 DATABASE_PATH = "instances.db"
 MASTER_ADMIN_USERNAME = os.getenv("MASTER_ADMIN_USERNAME", "admin")
 MASTER_ADMIN_PASSWORD = os.getenv("MASTER_ADMIN_PASSWORD", "changeme123")  # Change in production!
@@ -110,7 +110,7 @@ async def get_latest_version():
     """Return latest available version for customer instances."""
     return {
         "version": LATEST_VERSION,
-        "released": "2026-01-18",
+        "released": "2026-01-19",
         "changelog_url": "https://hushlane.app/changelog",
         "critical": False  # Set to True for critical security updates
     }
