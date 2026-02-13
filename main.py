@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel
 from datetime import datetime
+from typing import Optional
 import secrets
 import aiosqlite
 import os
@@ -45,7 +46,7 @@ class LicenseCreate(BaseModel):
     customer_id: str
     customer_name: str
     plan: str = "standard"
-    months: int = 12  # None for lifetime
+    months: Optional[int] = 12  # None/null for lifetime license
 
 
 async def init_db():

@@ -351,8 +351,13 @@
                         <input type="text" id="customerName" required placeholder="e.g., Acme Corp">
                     </div>
                     <div class="form-group">
-                        <label>Duration (months)</label>
-                        <input type="number" id="months" value="12" min="1" max="120">
+                        <label>Duration</label>
+                        <select id="months">
+                            <option value="12">12 months (1 year)</option>
+                            <option value="24">24 months (2 years)</option>
+                            <option value="36">36 months (3 years)</option>
+                            <option value="0">Lifetime (never expires)</option>
+                        </select>
                         <input type="hidden" id="plan" value="standard">
                     </div>
                 </div>
@@ -485,7 +490,8 @@
             const customerId = document.getElementById('customerId').value;
             const customerName = document.getElementById('customerName').value;
             const plan = document.getElementById('plan').value;
-            const months = parseInt(document.getElementById('months').value);
+            const monthsValue = parseInt(document.getElementById('months').value);
+            const months = monthsValue === 0 ? null : monthsValue;  // null = lifetime
 
             try {
                 const response = await fetch('/licenses/create', {
