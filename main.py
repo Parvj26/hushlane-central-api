@@ -41,6 +41,13 @@ class LicenseValidation(BaseModel):
     timestamp: str
 
 
+class LicenseCreate(BaseModel):
+    customer_id: str
+    customer_name: str
+    plan: str = "standard"
+    months: int = 12  # None for lifetime
+
+
 async def init_db():
     """Initialize database schema."""
     async with aiosqlite.connect(DATABASE_PATH) as db:
@@ -191,6 +198,96 @@ def verify_master_admin(credentials: HTTPBasicCredentials = Depends(security)):
             headers={"WWW-Authenticate": "Basic"},
         )
     return credentials.username
+
+
+@app.delete("/instances/{customer_id}")
+async def delete_instance(
+    customer_id: str,
+    username: str = Depends(verify_master_admin)
+):
+    """Delete a customer instance from the database. Requires admin authentication."""
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            # Check if instance exists
+            cursor = await db.execute(
+                "SELECT customer_id FROM customer_instances WHERE customer_id = ?",
+                (customer_id,)
+            )
+            row = await cursor.fetchone()
+
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Instance '{customer_id}' not found")
+
+            # Delete from all tables
+            await db.execute("DELETE FROM version_history WHERE customer_id = ?", (customer_id,))
+            await db.execute("DELETE FROM licenses WHERE customer_id = ?", (customer_id,))
+            await db.execute("DELETE FROM customer_instances WHERE customer_id = ?", (customer_id,))
+            await db.commit()
+
+            return {
+                "success": True,
+                "message": f"Instance '{customer_id}' deleted successfully",
+                "deleted_by": username
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting instance: {str(e)}")
+
+
+@app.post("/licenses/create")
+async def create_license(
+    license_data: LicenseCreate,
+    username: str = Depends(verify_master_admin)
+):
+    """Create a new license for a customer. Requires admin authentication."""
+    try:
+        # Generate license key in format: HL-XXXX-XXXX-XXXX-XXXX
+        parts = [secrets.token_hex(4).upper() for _ in range(4)]
+        license_key = f"HL-{'-'.join(parts)}"
+
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            # Check if customer already has a license
+            cursor = await db.execute(
+                "SELECT license_key FROM licenses WHERE customer_id = ?",
+                (license_data.customer_id,)
+            )
+            existing = await cursor.fetchone()
+
+            if existing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Customer '{license_data.customer_id}' already has a license: {existing[0]}"
+                )
+
+            # Calculate expiration
+            from datetime import timedelta
+            expires_at = None
+            if license_data.months:
+                expires_at = (datetime.now() + timedelta(days=license_data.months * 30)).isoformat()
+
+            # Insert license
+            await db.execute("""
+                INSERT INTO licenses (license_key, customer_id, customer_name, plan, status, expires_at)
+                VALUES (?, ?, ?, ?, 'active', ?)
+            """, (license_key, license_data.customer_id, license_data.customer_name, license_data.plan, expires_at))
+
+            await db.commit()
+
+            return {
+                "success": True,
+                "license_key": license_key,
+                "customer_id": license_data.customer_id,
+                "customer_name": license_data.customer_name,
+                "plan": license_data.plan,
+                "status": "active",
+                "expires_at": expires_at,
+                "created_by": username
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating license: {str(e)}")
 
 
 @app.get("/admin", response_class=HTMLResponse)
