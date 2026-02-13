@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Optional
 import secrets
 import aiosqlite
+import httpx
 import os
 
 app = FastAPI(title="HushLane Central API")
@@ -23,6 +24,12 @@ DATABASE_PATH = "instances.db"
 MASTER_ADMIN_USERNAME = os.getenv("MASTER_ADMIN_USERNAME", "admin")
 MASTER_ADMIN_PASSWORD = os.getenv("MASTER_ADMIN_PASSWORD", "changeme123")  # Change in production!
 LICENSE_SECRET = os.getenv("LICENSE_SECRET", "change-this-secret-key-in-production")
+
+# Cloudflare Configuration
+CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN", "")
+CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_ZONE_ID = os.getenv("CLOUDFLARE_ZONE_ID", "")
+CLOUDFLARE_DOMAIN = os.getenv("CLOUDFLARE_DOMAIN", "hushlane.app")
 
 
 class InstanceRegistration(BaseModel):
@@ -47,6 +54,10 @@ class LicenseCreate(BaseModel):
     customer_name: str
     plan: str = "standard"
     months: Optional[int] = 12  # None/null for lifetime license
+
+
+class TunnelCreate(BaseModel):
+    customer_id: str
 
 
 async def init_db():
@@ -358,6 +369,115 @@ async def delete_license(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error deleting license: {str(e)}")
+
+
+@app.post("/tunnels/create")
+async def create_cloudflare_tunnel(
+    tunnel_data: TunnelCreate,
+    username: str = Depends(verify_master_admin)
+):
+    """Create a Cloudflare tunnel for a customer. Requires admin authentication."""
+
+    # Check if Cloudflare is configured
+    if not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID:
+        raise HTTPException(
+            status_code=500,
+            detail="Cloudflare API not configured. Set CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID environment variables."
+        )
+
+    customer_id = tunnel_data.customer_id
+    tunnel_name = f"{customer_id}-hushlane"
+    subdomain = customer_id
+
+    try:
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+                "Content-Type": "application/json"
+            }
+
+            # 1. Create the tunnel
+            create_tunnel_response = await client.post(
+                f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel",
+                headers=headers,
+                json={
+                    "name": tunnel_name,
+                    "tunnel_secret": secrets.token_urlsafe(32)
+                }
+            )
+
+            if create_tunnel_response.status_code != 200:
+                error_data = create_tunnel_response.json()
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to create tunnel: {error_data.get('errors', 'Unknown error')}"
+                )
+
+            tunnel_data_response = create_tunnel_response.json()
+            tunnel_id = tunnel_data_response["result"]["id"]
+            tunnel_token = tunnel_data_response["result"]["token"]
+
+            # 2. Configure tunnel hostname (if ZONE_ID is provided)
+            if CLOUDFLARE_ZONE_ID:
+                hostname = f"{subdomain}.{CLOUDFLARE_DOMAIN}"
+
+                config_response = await client.put(
+                    f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/{tunnel_id}/configurations",
+                    headers=headers,
+                    json={
+                        "config": {
+                            "ingress": [
+                                {
+                                    "hostname": hostname,
+                                    "service": "http://hushlane_app:8000"
+                                },
+                                {
+                                    "service": "http_status:404"
+                                }
+                            ]
+                        }
+                    }
+                )
+
+                if config_response.status_code != 200:
+                    # Tunnel created but config failed - still return token
+                    print(f"Warning: Tunnel created but hostname config failed: {config_response.text}")
+
+                # 3. Create DNS record
+                dns_response = await client.post(
+                    f"https://api.cloudflare.com/client/v4/zones/{CLOUDFLARE_ZONE_ID}/dns_records",
+                    headers=headers,
+                    json={
+                        "type": "CNAME",
+                        "name": subdomain,
+                        "content": f"{tunnel_id}.cfargotunnel.com",
+                        "proxied": True
+                    }
+                )
+
+                if dns_response.status_code not in [200, 201]:
+                    dns_data = dns_response.json()
+                    # Check if it's a duplicate record error (code 81057)
+                    errors = dns_data.get("errors", [])
+                    if errors and errors[0].get("code") == 81057:
+                        print(f"DNS record already exists for {hostname}")
+                    else:
+                        print(f"Warning: Tunnel created but DNS failed: {dns_data.get('errors', 'Unknown error')}")
+
+            return {
+                "success": True,
+                "tunnel_id": tunnel_id,
+                "tunnel_name": tunnel_name,
+                "tunnel_token": tunnel_token,
+                "customer_id": customer_id,
+                "hostname": f"{subdomain}.{CLOUDFLARE_DOMAIN}",
+                "created_by": username
+            }
+
+    except httpx.HTTPError as e:
+        raise HTTPException(status_code=500, detail=f"Cloudflare API error: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error creating tunnel: {str(e)}")
 
 
 @app.get("/admin", response_class=HTMLResponse)

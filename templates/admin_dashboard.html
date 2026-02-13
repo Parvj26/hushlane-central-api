@@ -338,7 +338,31 @@
     </div>
 
     <div class="table-container">
-        <h2>Create New License</h2>
+        <h2>Quick Onboarding</h2>
+        <div class="license-form">
+            <h3>1. Create Cloudflare Tunnel</h3>
+            <form id="tunnelForm" style="margin-bottom: 20px;">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Customer ID *</label>
+                        <input type="text" id="tunnelCustomerId" required placeholder="e.g., acme">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Create Tunnel</button>
+            </form>
+            <div id="tunnelOutput" class="license-output">
+                <h4>✅ Tunnel Created Successfully!</h4>
+                <p><strong>Customer ID:</strong> <span id="outputTunnelCustomerId"></span></p>
+                <p><strong>Hostname:</strong> <span id="outputTunnelHostname"></span></p>
+                <p><strong>Tunnel Token:</strong></p>
+                <div class="license-key" id="tunnelToken" onclick="copyToClipboard(this.textContent)" style="cursor: pointer;" title="Click to copy"></div>
+                <p style="margin-top: 10px; font-size: 0.9em; color: #666;">Send this tunnel token to the customer. They'll paste it during installation.</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="table-container">
+        <h2>2. Create License Key</h2>
         <div class="license-form">
             <form id="licenseForm">
                 <div class="form-row">
@@ -548,6 +572,47 @@
                 notification.remove();
             }, 5000);
         }
+
+        // Create tunnel
+        document.getElementById('tunnelForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const customerId = document.getElementById('tunnelCustomerId').value;
+
+            try {
+                const response = await fetch('/tunnels/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    credentials: 'include',
+                    body: JSON.stringify({
+                        customer_id: customerId
+                    })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    // Show the tunnel output
+                    document.getElementById('outputTunnelCustomerId').textContent = data.customer_id;
+                    document.getElementById('outputTunnelHostname').textContent = data.hostname;
+                    document.getElementById('tunnelToken').textContent = data.tunnel_token;
+                    document.getElementById('tunnelOutput').classList.add('show');
+
+                    showNotification('Tunnel created successfully!', 'success');
+
+                    // Reset form
+                    document.getElementById('tunnelForm').reset();
+                } else {
+                    const error = await response.json();
+                    showNotification(`Error: ${error.detail}`, 'error');
+                }
+            } catch (error) {
+                showNotification('Network error. Please try again.', 'error');
+                console.error('Error:', error);
+            }
+        });
 
         // Create license
         document.getElementById('licenseForm').addEventListener('submit', async (e) => {

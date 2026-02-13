@@ -3,3 +3,4 @@ uvicorn[standard]
 aiosqlite
 python-multipart
 jinja2
+httpx
