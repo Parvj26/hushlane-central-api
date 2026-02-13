@@ -291,6 +291,75 @@ async def create_license(
         raise HTTPException(status_code=500, detail=f"Error creating license: {str(e)}")
 
 
+@app.post("/licenses/{customer_id}/revoke")
+async def revoke_license(
+    customer_id: str,
+    username: str = Depends(verify_master_admin)
+):
+    """Revoke a customer license. Requires admin authentication."""
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            # Check if license exists
+            cursor = await db.execute(
+                "SELECT license_key, status FROM licenses WHERE customer_id = ?",
+                (customer_id,)
+            )
+            row = await cursor.fetchone()
+
+            if not row:
+                raise HTTPException(status_code=404, detail=f"License for '{customer_id}' not found")
+
+            # Update status to revoked
+            await db.execute(
+                "UPDATE licenses SET status = 'revoked' WHERE customer_id = ?",
+                (customer_id,)
+            )
+            await db.commit()
+
+            return {
+                "success": True,
+                "message": f"License for '{customer_id}' revoked successfully",
+                "revoked_by": username
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error revoking license: {str(e)}")
+
+
+@app.delete("/licenses/{customer_id}")
+async def delete_license(
+    customer_id: str,
+    username: str = Depends(verify_master_admin)
+):
+    """Permanently delete a customer license. Requires admin authentication."""
+    try:
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            # Check if license exists
+            cursor = await db.execute(
+                "SELECT license_key FROM licenses WHERE customer_id = ?",
+                (customer_id,)
+            )
+            row = await cursor.fetchone()
+
+            if not row:
+                raise HTTPException(status_code=404, detail=f"License for '{customer_id}' not found")
+
+            # Delete the license
+            await db.execute("DELETE FROM licenses WHERE customer_id = ?", (customer_id,))
+            await db.commit()
+
+            return {
+                "success": True,
+                "message": f"License for '{customer_id}' deleted permanently",
+                "deleted_by": username
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting license: {str(e)}")
+
+
 @app.get("/admin", response_class=HTMLResponse)
 async def master_admin_dashboard(
     request: Request,
@@ -322,6 +391,14 @@ async def master_admin_dashboard(
         updates_rows = await cursor.fetchall()
         recent_updates = [dict(row) for row in updates_rows]
 
+        # Fetch all licenses
+        cursor = await db.execute("""
+            SELECT * FROM licenses
+            ORDER BY created_at DESC
+        """)
+        licenses_rows = await cursor.fetchall()
+        licenses = [dict(row) for row in licenses_rows]
+
     return templates.TemplateResponse("admin_dashboard.html", {
         "request": request,
         "instances": instances,
@@ -329,6 +406,7 @@ async def master_admin_dashboard(
         "healthy_count": healthy_count,
         "outdated_count": outdated_count,
         "recent_updates": recent_updates,
+        "licenses": licenses,
         "latest_version": LATEST_VERSION
     })
 

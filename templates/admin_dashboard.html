@@ -375,6 +375,72 @@
     </div>
 
     <div class="table-container">
+        <h2>License Keys</h2>
+
+        {% if licenses %}
+        <table>
+            <thead>
+                <tr>
+                    <th>License Key</th>
+                    <th>Customer ID</th>
+                    <th>Customer Name</th>
+                    <th>Plan</th>
+                    <th>Status</th>
+                    <th>Created</th>
+                    <th>Expires</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for license in licenses %}
+                <tr>
+                    <td>
+                        <span class="license-key" style="font-size: 0.85em; padding: 4px 8px; cursor: pointer;"
+                              onclick="copyToClipboard('{{ license.license_key }}')"
+                              title="Click to copy">
+                            {{ license.license_key }}
+                        </span>
+                    </td>
+                    <td><strong>{{ license.customer_id }}</strong></td>
+                    <td>{{ license.customer_name }}</td>
+                    <td>{{ license.plan }}</td>
+                    <td>
+                        {% if license.status == 'active' %}
+                            <span class="status-healthy">✓ Active</span>
+                        {% else %}
+                            <span class="status-unhealthy">✗ {{ license.status }}</span>
+                        {% endif %}
+                    </td>
+                    <td class="timestamp">{{ license.created_at[:10] if license.created_at else 'N/A' }}</td>
+                    <td class="timestamp">
+                        {% if license.expires_at %}
+                            {{ license.expires_at[:10] }}
+                        {% else %}
+                            <span style="color: #22c55e; font-weight: 600;">Never (Lifetime)</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if license.status == 'active' %}
+                            <button class="btn btn-danger btn-small" onclick="revokeLicense('{{ license.customer_id }}')" style="margin-right: 5px;">
+                                Revoke
+                            </button>
+                        {% endif %}
+                        <button class="btn btn-danger btn-small" onclick="deleteLicense('{{ license.customer_id }}')" style="background: #991b1b;">
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No licenses created yet. Use the form above to create one.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="table-container">
         <h2>Customer Instances</h2>
         <div class="refresh-info">Auto-refresh: Page reloads show latest data</div>
 
@@ -530,6 +596,74 @@
                 console.error('Error:', error);
             }
         });
+
+        // Copy to clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                showNotification('License key copied to clipboard!', 'success');
+            }).catch(err => {
+                showNotification('Failed to copy. Try selecting and copying manually.', 'error');
+                console.error('Copy failed:', err);
+            });
+        }
+
+        // Revoke license
+        async function revokeLicense(customerId) {
+            if (!confirm(`Are you sure you want to revoke the license for "${customerId}"?\n\nTheir app will stop working within 24 hours.\n\nYou can delete the license permanently if needed.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/licenses/${customerId}/revoke`, {
+                    method: 'POST',
+                    credentials: 'include',
+                });
+
+                if (response.ok) {
+                    showNotification(`License for "${customerId}" revoked!`, 'success');
+
+                    // Reload page after 1 second
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    const error = await response.json();
+                    showNotification(`Error: ${error.detail}`, 'error');
+                }
+            } catch (error) {
+                showNotification('Network error. Please try again.', 'error');
+                console.error('Error:', error);
+            }
+        }
+
+        // Delete license
+        async function deleteLicense(customerId) {
+            if (!confirm(`⚠️ PERMANENT DELETE\n\nAre you sure you want to PERMANENTLY DELETE the license for "${customerId}"?\n\nThis action cannot be undone!\n\nTheir app will stop working and they cannot be restored.`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/licenses/${customerId}`, {
+                    method: 'DELETE',
+                    credentials: 'include',
+                });
+
+                if (response.ok) {
+                    showNotification(`License for "${customerId}" deleted permanently!`, 'success');
+
+                    // Reload page after 1 second
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    const error = await response.json();
+                    showNotification(`Error: ${error.detail}`, 'error');
+                }
+            } catch (error) {
+                showNotification('Network error. Please try again.', 'error');
+                console.error('Error:', error);
+            }
+        }
 
         // Delete instance
         async function deleteInstance(customerId) {
