@@ -454,9 +454,57 @@ async def create_cloudflare_tunnel(
 
             if create_tunnel_response.status_code != 200:
                 error_data = create_tunnel_response.json()
+                errors = error_data.get('errors', [])
+
+                # Check if tunnel already exists in Cloudflare (error code 1009 or contains "already exists")
+                error_msg = str(errors).lower()
+                if any(err.get('code') == 1009 for err in errors if isinstance(err, dict)) or 'already exists' in error_msg or 'duplicate' in error_msg:
+                    # Tunnel exists in Cloudflare, try to find it
+                    print(f"Tunnel '{tunnel_name}' already exists in Cloudflare, fetching details...")
+
+                    # List all tunnels to find the existing one
+                    list_response = await client.get(
+                        f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel",
+                        headers=headers
+                    )
+
+                    if list_response.status_code == 200:
+                        tunnels_data = list_response.json()
+                        tunnels = tunnels_data.get('result', [])
+
+                        # Find tunnel by name
+                        existing_tunnel = next((t for t in tunnels if t.get('name') == tunnel_name), None)
+
+                        if existing_tunnel:
+                            tunnel_id = existing_tunnel['id']
+                            hostname = f"{subdomain}.{CLOUDFLARE_DOMAIN}"
+
+                            # Token is not available from API - can't retrieve it after creation
+                            tunnel_token = "TOKEN_UNAVAILABLE_CHECK_CLOUDFLARE"
+
+                            # Store in database with what we have
+                            async with aiosqlite.connect(DATABASE_PATH) as db:
+                                await db.execute("""
+                                    INSERT INTO tunnels (tunnel_id, customer_id, tunnel_name, tunnel_token, hostname, created_by)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                """, (tunnel_id, customer_id, tunnel_name, tunnel_token, hostname, username))
+                                await db.commit()
+
+                            return {
+                                "success": True,
+                                "tunnel_id": tunnel_id,
+                                "tunnel_name": tunnel_name,
+                                "tunnel_token": tunnel_token,
+                                "customer_id": customer_id,
+                                "hostname": hostname,
+                                "message": "Tunnel already exists in Cloudflare. Token unavailable - check Cloudflare dashboard or recreate tunnel.",
+                                "created_by": username
+                            }
+
+                # Other error - raise it
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to create tunnel: {error_data.get('errors', 'Unknown error')}"
+                    detail=f"Failed to create tunnel: {errors}"
                 )
 
             tunnel_data_response = create_tunnel_response.json()

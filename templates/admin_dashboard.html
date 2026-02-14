@@ -420,11 +420,17 @@
                     <td>{{ tunnel.tunnel_name }}</td>
                     <td><a href="https://{{ tunnel.hostname }}" target="_blank">{{ tunnel.hostname }}</a></td>
                     <td>
-                        <span class="license-key" style="font-size: 0.75em; padding: 4px 8px; cursor: pointer; word-break: break-all;"
-                              onclick="copyToClipboard('{{ tunnel.tunnel_token }}')"
-                              title="Click to copy">
-                            {{ tunnel.tunnel_token[:40] }}...
-                        </span>
+                        {% if 'UNAVAILABLE' in tunnel.tunnel_token %}
+                            <span style="color: #f59e0b; font-size: 0.85em; font-style: italic;" title="Token not available - tunnel exists in Cloudflare but token cannot be retrieved">
+                                ⚠️ Token Unavailable
+                            </span>
+                        {% else %}
+                            <span class="license-key" style="font-size: 0.75em; padding: 4px 8px; cursor: pointer; word-break: break-all;"
+                                  onclick="copyToClipboard('{{ tunnel.tunnel_token }}')"
+                                  title="Click to copy">
+                                {{ tunnel.tunnel_token[:40] }}...
+                            </span>
+                        {% endif %}
                     </td>
                     <td class="timestamp">{{ tunnel.created_at[:10] if tunnel.created_at else 'N/A' }}</td>
                     <td>
@@ -642,10 +648,23 @@
                     // Show the tunnel output
                     document.getElementById('outputTunnelCustomerId').textContent = data.customer_id;
                     document.getElementById('outputTunnelHostname').textContent = data.hostname;
-                    document.getElementById('tunnelToken').textContent = data.tunnel_token;
-                    document.getElementById('tunnelOutput').classList.add('show');
 
-                    showNotification('Tunnel created successfully!', 'success');
+                    // Check if token is unavailable
+                    const tokenElement = document.getElementById('tunnelToken');
+                    if (data.tunnel_token && data.tunnel_token.includes('UNAVAILABLE')) {
+                        tokenElement.textContent = '⚠️ Token Unavailable - Tunnel exists in Cloudflare';
+                        tokenElement.style.color = '#f59e0b';
+                        tokenElement.style.cursor = 'default';
+                        tokenElement.onclick = null;
+                        showNotification(data.message || 'Tunnel exists but token unavailable', 'error');
+                    } else {
+                        tokenElement.textContent = data.tunnel_token;
+                        tokenElement.style.color = '#6750A4';
+                        tokenElement.style.cursor = 'pointer';
+                        showNotification(data.message || 'Tunnel created successfully!', 'success');
+                    }
+
+                    document.getElementById('tunnelOutput').classList.add('show');
 
                     // Reset form
                     document.getElementById('tunnelForm').reset();
