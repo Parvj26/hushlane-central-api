@@ -15,5 +15,5 @@ services:
         value: 3.11.0
     disk:
       name: hushlane-data
-      mountPath: /opt/render/project/src
+      mountPath: /var/data
       sizeGB: 1

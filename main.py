@@ -23,9 +23,9 @@ security = HTTPBasic()
 LATEST_VERSION = "1.0.5"  # Update this when releasing new versions
 
 # Database path - use persistent storage on Render
-# Render mounts disk at /opt/render/project/src (which is also working directory)
-# Use relative path to avoid permission issues during module import
-DATA_DIR = os.getenv("DATA_DIR", "data")
+# Render mounts persistent disk at /var/data (separate from code)
+# Fallback to ./data for local development
+DATA_DIR = os.getenv("DATA_DIR", "/var/data" if os.path.exists("/var/data") else "data")
 DATABASE_PATH = os.path.join(DATA_DIR, "instances.db")
 
 MASTER_ADMIN_USERNAME = os.getenv("MASTER_ADMIN_USERNAME", "admin")
