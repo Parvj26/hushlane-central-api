@@ -20,7 +20,12 @@ security = HTTPBasic()
 
 # Configuration
 LATEST_VERSION = "1.0.5"  # Update this when releasing new versions
-DATABASE_PATH = "instances.db"
+
+# Database path - use persistent storage on Render
+DATA_DIR = os.getenv("DATA_DIR", "/opt/render/project/src/data")
+os.makedirs(DATA_DIR, exist_ok=True)
+DATABASE_PATH = os.path.join(DATA_DIR, "instances.db")
+
 MASTER_ADMIN_USERNAME = os.getenv("MASTER_ADMIN_USERNAME", "admin")
 MASTER_ADMIN_PASSWORD = os.getenv("MASTER_ADMIN_PASSWORD", "changeme123")  # Change in production!
 LICENSE_SECRET = os.getenv("LICENSE_SECRET", "change-this-secret-key-in-production")
