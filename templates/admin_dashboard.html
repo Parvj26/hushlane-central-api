@@ -399,6 +399,51 @@
     </div>
 
     <div class="table-container">
+        <h2>Cloudflare Tunnels</h2>
+
+        {% if tunnels %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Customer ID</th>
+                    <th>Tunnel Name</th>
+                    <th>Hostname</th>
+                    <th>Tunnel Token</th>
+                    <th>Created</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for tunnel in tunnels %}
+                <tr>
+                    <td><strong>{{ tunnel.customer_id }}</strong></td>
+                    <td>{{ tunnel.tunnel_name }}</td>
+                    <td><a href="https://{{ tunnel.hostname }}" target="_blank">{{ tunnel.hostname }}</a></td>
+                    <td>
+                        <span class="license-key" style="font-size: 0.75em; padding: 4px 8px; cursor: pointer; word-break: break-all;"
+                              onclick="copyToClipboard('{{ tunnel.tunnel_token }}')"
+                              title="Click to copy">
+                            {{ tunnel.tunnel_token[:40] }}...
+                        </span>
+                    </td>
+                    <td class="timestamp">{{ tunnel.created_at[:10] if tunnel.created_at else 'N/A' }}</td>
+                    <td>
+                        <button class="btn btn-danger btn-small" onclick="deleteTunnel('{{ tunnel.customer_id }}')" style="background: #991b1b;">
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <p>No tunnels created yet. Use the form above to create one.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="table-container">
         <h2>License Keys</h2>
 
         {% if licenses %}
@@ -715,6 +760,35 @@
 
                 if (response.ok) {
                     showNotification(`License for "${customerId}" deleted permanently!`, 'success');
+
+                    // Reload page after 1 second
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
+                } else {
+                    const error = await response.json();
+                    showNotification(`Error: ${error.detail}`, 'error');
+                }
+            } catch (error) {
+                showNotification('Network error. Please try again.', 'error');
+                console.error('Error:', error);
+            }
+        }
+
+        // Delete tunnel
+        async function deleteTunnel(customerId) {
+            if (!confirm(`⚠️ DELETE TUNNEL\n\nAre you sure you want to delete the Cloudflare tunnel for "${customerId}"?\n\nThis will:\n- Delete the tunnel from Cloudflare\n- Remove the tunnel token (cannot be recovered)\n- Customer's subdomain will stop working\n\nThis action cannot be undone!`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/tunnels/${customerId}`, {
+                    method: 'DELETE',
+                    credentials: 'include',
+                });
+
+                if (response.ok) {
+                    showNotification(`Tunnel for "${customerId}" deleted!`, 'success');
 
                     // Reload page after 1 second
                     setTimeout(() => {

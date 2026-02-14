@@ -108,6 +108,18 @@ async def init_db():
             )
         """)
 
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tunnels (
+                tunnel_id TEXT PRIMARY KEY,
+                customer_id TEXT NOT NULL UNIQUE,
+                tunnel_name TEXT NOT NULL,
+                tunnel_token TEXT NOT NULL,
+                hostname TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                created_by TEXT
+            )
+        """)
+
         await db.commit()
 
 
@@ -401,6 +413,26 @@ async def create_cloudflare_tunnel(
     subdomain = customer_id
 
     try:
+        # Check if tunnel already exists in database
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            cursor = await db.execute(
+                "SELECT tunnel_id, tunnel_token, hostname FROM tunnels WHERE customer_id = ?",
+                (customer_id,)
+            )
+            existing = await cursor.fetchone()
+
+            if existing:
+                return {
+                    "success": True,
+                    "tunnel_id": existing[0],
+                    "tunnel_name": tunnel_name,
+                    "tunnel_token": existing[1],
+                    "customer_id": customer_id,
+                    "hostname": existing[2],
+                    "message": "Tunnel already exists (retrieved from database)",
+                    "created_by": username
+                }
+
         async with httpx.AsyncClient() as client:
             headers = {
                 "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
@@ -478,13 +510,22 @@ async def create_cloudflare_tunnel(
                     else:
                         print(f"Warning: Tunnel created but DNS failed: {dns_data.get('errors', 'Unknown error')}")
 
+            # Store tunnel in database
+            hostname = f"{subdomain}.{CLOUDFLARE_DOMAIN}"
+            async with aiosqlite.connect(DATABASE_PATH) as db:
+                await db.execute("""
+                    INSERT INTO tunnels (tunnel_id, customer_id, tunnel_name, tunnel_token, hostname, created_by)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (tunnel_id, customer_id, tunnel_name, tunnel_token, hostname, username))
+                await db.commit()
+
             return {
                 "success": True,
                 "tunnel_id": tunnel_id,
                 "tunnel_name": tunnel_name,
                 "tunnel_token": tunnel_token,
                 "customer_id": customer_id,
-                "hostname": f"{subdomain}.{CLOUDFLARE_DOMAIN}",
+                "hostname": hostname,
                 "created_by": username
             }
 
@@ -492,6 +533,67 @@ async def create_cloudflare_tunnel(
         raise HTTPException(status_code=500, detail=f"Cloudflare API error: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating tunnel: {str(e)}")
+
+
+@app.delete("/tunnels/{customer_id}")
+async def delete_tunnel(
+    customer_id: str,
+    username: str = Depends(verify_master_admin)
+):
+    """Delete a Cloudflare tunnel. Requires admin authentication."""
+
+    if not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID:
+        raise HTTPException(
+            status_code=500,
+            detail="Cloudflare API not configured"
+        )
+
+    try:
+        # Get tunnel info from database
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            cursor = await db.execute(
+                "SELECT tunnel_id, tunnel_name FROM tunnels WHERE customer_id = ?",
+                (customer_id,)
+            )
+            row = await cursor.fetchone()
+
+            if not row:
+                raise HTTPException(status_code=404, detail=f"Tunnel for '{customer_id}' not found in database")
+
+            tunnel_id = row[0]
+            tunnel_name = row[1]
+
+        # Delete tunnel from Cloudflare
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
+                "Content-Type": "application/json"
+            }
+
+            delete_response = await client.delete(
+                f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel/{tunnel_id}",
+                headers=headers
+            )
+
+            if delete_response.status_code not in [200, 204]:
+                # Tunnel might already be deleted in Cloudflare, continue anyway
+                print(f"Warning: Cloudflare delete returned {delete_response.status_code}")
+
+        # Delete from database
+        async with aiosqlite.connect(DATABASE_PATH) as db:
+            await db.execute("DELETE FROM tunnels WHERE customer_id = ?", (customer_id,))
+            await db.commit()
+
+        return {
+            "success": True,
+            "message": f"Tunnel '{tunnel_name}' deleted successfully",
+            "deleted_by": username
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error deleting tunnel: {str(e)}")
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -533,6 +635,14 @@ async def master_admin_dashboard(
         licenses_rows = await cursor.fetchall()
         licenses = [dict(row) for row in licenses_rows]
 
+        # Fetch all tunnels
+        cursor = await db.execute("""
+            SELECT * FROM tunnels
+            ORDER BY created_at DESC
+        """)
+        tunnels_rows = await cursor.fetchall()
+        tunnels = [dict(row) for row in tunnels_rows]
+
     return templates.TemplateResponse("admin_dashboard.html", {
         "request": request,
         "instances": instances,
@@ -541,6 +651,7 @@ async def master_admin_dashboard(
         "outdated_count": outdated_count,
         "recent_updates": recent_updates,
         "licenses": licenses,
+        "tunnels": tunnels,
         "latest_version": LATEST_VERSION
     })
 
