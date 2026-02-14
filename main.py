@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
 import secrets
+import base64
 import aiosqlite
 import httpx
 import os
@@ -407,12 +408,15 @@ async def create_cloudflare_tunnel(
             }
 
             # 1. Create the tunnel
+            # Generate 32 random bytes and encode as base64 (Cloudflare requirement)
+            tunnel_secret = base64.b64encode(secrets.token_bytes(32)).decode('utf-8')
+
             create_tunnel_response = await client.post(
                 f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/cfd_tunnel",
                 headers=headers,
                 json={
                     "name": tunnel_name,
-                    "tunnel_secret": secrets.token_urlsafe(32)
+                    "tunnel_secret": tunnel_secret
                 }
             )
 
