@@ -22,8 +22,9 @@ security = HTTPBasic()
 LATEST_VERSION = "1.0.5"  # Update this when releasing new versions
 
 # Database path - use persistent storage on Render
-DATA_DIR = os.getenv("DATA_DIR", "/opt/render/project/src/data")
-os.makedirs(DATA_DIR, exist_ok=True)
+# Render mounts disk at /opt/render/project/src (which is also working directory)
+# Use relative path to avoid permission issues during module import
+DATA_DIR = os.getenv("DATA_DIR", "data")
 DATABASE_PATH = os.path.join(DATA_DIR, "instances.db")
 
 MASTER_ADMIN_USERNAME = os.getenv("MASTER_ADMIN_USERNAME", "admin")
@@ -112,6 +113,10 @@ async def init_db():
 @app.on_event("startup")
 async def startup():
     """Initialize database on startup."""
+    # Create data directory if it doesn't exist
+    os.makedirs(DATA_DIR, exist_ok=True)
+    print(f"✓ Data directory ready: {os.path.abspath(DATA_DIR)}")
+
     await init_db()
 
 
