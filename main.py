@@ -19,7 +19,7 @@ templates = Jinja2Templates(directory="templates")
 security = HTTPBasic()
 
 # Configuration
-LATEST_VERSION = "1.0.4"  # Update this when releasing new versions
+LATEST_VERSION = "1.0.5"  # Update this when releasing new versions
 DATABASE_PATH = "instances.db"
 MASTER_ADMIN_USERNAME = os.getenv("MASTER_ADMIN_USERNAME", "admin")
 MASTER_ADMIN_PASSWORD = os.getenv("MASTER_ADMIN_PASSWORD", "changeme123")  # Change in production!
